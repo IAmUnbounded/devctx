@@ -100,7 +100,8 @@ DevContext provides a Model Context Protocol (MCP) server to allow AI agents to 
 
 ### 🆚 VS Code Extension
 Auto-resumes context when you open the project.
-*Build from source:* `cd vscode-extension && npm install && npm run package` (Marketplace link coming soon).
+### 💻 Direct CLI Usage
+Any AI agent with terminal access (e.g. via `run_command` or similar tools) can directly run `devctx save`, `resume`, and `log`. This is a universal fallback if MCP is not available.
 
 ## How It Works
 
