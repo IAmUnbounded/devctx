@@ -46,7 +46,8 @@ devctx resume
 
 ## Features & Commands
 
-### Core
+### Core (No AI Key Required)
+**These commands work locally with zero dependencies.**
 | Command | Description |
 |---------|-------------|
 | `devctx init` | Initialize DevContext in current repo |
@@ -56,7 +57,7 @@ devctx resume
 | `devctx log` | View context history for current branch |
 | `devctx diff` | Show changes since last context save |
 
-### Team & Automation
+### Team & Automation (No AI Key Required)
 | Command | Description |
 |---------|-------------|
 | `devctx handoff @user` | explicit handoff note to a teammate |
@@ -65,7 +66,8 @@ devctx resume
 | `devctx hook install` | Install git post-commit hook for auto-capture |
 
 ### AI-Powered (Experimental)
-*Requires `DEVCTX_AI_KEY` environment variable (OpenAI compatible)*
+### AI-Powered (Experimental)
+**Requires an LLM Provider.** Set via `DEVCTX_AI_KEY` env var or `devctx config set aiApiKey <key>`. Defaults to OpenAI-compatible API.
 | Command | Description |
 |---------|-------------|
 | `devctx summarize` | AI-generates context from git diff + recent commits |
