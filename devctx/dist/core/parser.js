@@ -334,11 +334,43 @@ async function extractFromAntigravity(repoPath) {
         if (walkTitle && !currentState) {
             currentState = walkTitle[1].trim();
         }
-        // First section gives more detail
+        // Parse "Changes" or "What Was Built" or "Implementation" sections for Approaches/Decisions
+        // These are usually more current than the plan. Support Level 2-4 headers.
+        // Priority: Changes > Implementation Details > What Was Built
+        let changesMatch = walkthrough.match(/#{2,4}\s*(?:Changes)\s*\n([\s\S]*?)(?=\n#{2,4} |$)/i);
+        if (!changesMatch) {
+            changesMatch = walkthrough.match(/#{2,4}\s*(?:Implementation Details?|What Was Built)\s*\n([\s\S]*?)(?=\n#{2,4} |$)/i);
+        }
+        if (changesMatch) {
+            const changesText = changesMatch[1].trim();
+            const changeLines = changesText.split("\n");
+            for (const line of changeLines) {
+                const cleaned = line.replace(/^[-*]\s*/, "").trim();
+                if (cleaned.length < 10)
+                    continue;
+                // If line contains decision keywords, treat as decision
+                if (cleaned.match(/\b(decid|chos|opt|select|prefer|us(?:e|ing)|going with|approach|architect|pattern|instead of)/i)) {
+                    // Only add if not already present (avoid dupes from plan)
+                    if (!decisions.includes(cleaned)) {
+                        decisions.push(cleaned);
+                    }
+                }
+                else if (line.trim().startsWith("-") || line.trim().startsWith("*")) {
+                    // Treat other bullet points as approaches/actions taken
+                    if (!approaches.includes(cleaned) && !cleaned.startsWith("[")) {
+                        approaches.push(cleaned);
+                    }
+                }
+            }
+        }
+        // First section gives more detail for current state
         const firstSection = walkthrough.match(/##\s*.*?\n([\s\S]*?)(?=\n##|$)/);
-        if (firstSection) {
+        if (firstSection && !changesMatch) { // Only use first section if we didn't find specific changes
             const detail = firstSection[1].trim().slice(0, 300);
             currentState = currentState ? `${currentState}. ${detail}` : detail;
+        }
+        else if (changesMatch) {
+            currentState = currentState ? `${currentState}. See approaches for details.` : "See approaches for details.";
         }
     }
     return {
