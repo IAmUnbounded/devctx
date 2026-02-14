@@ -1,14 +1,26 @@
-# devctx 🧠
+# DevContext 🧠
 
-> Git tracks your code history. DevContext tracks your intent history.
+> *"Git tracks your code history. DevContext tracks your intent history."*
 
 **Persistent AI coding context for teams.** Never re-explain your codebase to an AI assistant again.
 
 ## The Problem
 
-You're deep in a Cursor/Claude Code session. The AI knows everything — your architecture, what you tried, what failed. Then the session dies. New editor, new day, new AI — and you spend 15 minutes re-explaining everything.
+You're deep in a Cursor session refactoring a payment service. You've explained the architecture, tried 3 approaches, finally found the right one. Session dies. Next morning — or worse, your teammate picks it up — and the AI has **zero memory**. You spend 15 min re-explaining everything. Every. Single. Time.
 
-**DevContext fixes this.**
+This is broken across **every** AI coding tool: Cursor, Claude Code, Copilot, Windsurf — none of them persist context across sessions, editors, or team members.
+
+## The Solution
+
+**DevContext** is a CLI tool that automatically captures and restores AI coding context, scoped to your repo and branch.
+
+```bash
+# Save context after a session
+devctx save "Refactoring payment service to use event sourcing"
+
+# Restore context in any editor, any machine
+devctx resume
+```
 
 ## Install
 
@@ -19,40 +31,84 @@ npm install -g devctx
 ## Quick Start
 
 ```bash
-# Initialize in your repo
+# 1. Initialize in your repo
 devctx init
 
-# Save context after a coding session
+# 2. Work on your code... then save context
 devctx save
-# → Interactive prompts: what you worked on, what you tried, where you left off
+# → Interactive prompts capture: Task, Approaches, Decisions, Next Steps
 
-# Or quick save with a message
-devctx save "Got gRPC unary calls working, need streaming next"
-
-# Resume in ANY editor — copies context to clipboard
+# 3. Resume in ANY editor
 devctx resume
-
-# Paste into Cursor, Claude Code, Copilot — AI picks up where you left off ✨
+# → Copies a perfectly formatted prompt to your clipboard
+# → Paste into Cursor, Claude, or ChatGPT to restore full context
 ```
 
-## Commands
+## Features & Commands
 
+### Core
 | Command | Description |
 |---------|-------------|
-| `devctx init` | Initialize in current repo |
-| `devctx save [msg]` | Save coding context (interactive or quick) |
-| `devctx resume` | Copy context prompt to clipboard |
-| `devctx resume --branch feature/x` | Resume a specific branch |
-| `devctx resume --stdout` | Print instead of copy |
-| `devctx log` | View context history |
-| `devctx log --all` | View all branches |
+| `devctx init` | Initialize DevContext in current repo |
+| `devctx save [msg]` | Save context (interactive or quick mode) |
+| `devctx resume` | Generate AI prompt & copy to clipboard |
+| `devctx log` | View context history for current branch |
+| `devctx diff` | Show changes since last context save |
+
+### Team & Automation
+| Command | Description |
+|---------|-------------|
+| `devctx handoff @user` | explicit handoff note to a teammate |
+| `devctx share` | Commit `.devctx/` folder to git for team sync |
+| `devctx watch` | Auto-save context on file changes (using `chokidar`) |
+| `devctx hook install` | Install git post-commit hook for auto-capture |
+
+### AI-Powered (Experimental)
+*Requires `DEVCTX_AI_KEY` environment variable (OpenAI compatible)*
+| Command | Description |
+|---------|-------------|
+| `devctx summarize` | AI-generates context from git diff + recent commits |
+| `devctx suggest` | AI suggests next steps based on current context |
+| `devctx compress` | detailed history into a concise summary |
+
+### Configuration
+| Command | Description |
+|---------|-------------|
+| `devctx config set <key> <val>` | Set preferences (e.g. `aiProvider`, `watchInterval`) |
+| `devctx config list` | View all configuration |
+
+## Integrations
+
+### 🤖 MCP Server (Claude Code, Windsurf)
+DevContext provides a Model Context Protocol (MCP) server to allow AI agents to natively read/write context.
+
+**Add to your MCP config:**
+```json
+{
+  "mcpServers": {
+    "devctx": {
+      "command": "npx",
+      "args": ["-y", "devctx", "mcp"]
+    }
+  }
+}
+```
+*Exposes tools: `devctx_save`, `devctx_resume`, `devctx_log` and resource `devctx://context`.*
+
+### 🆚 VS Code Extension
+Auto-resumes context when you open the project.
+*Build from source:* `cd vscode-extension && npm install && npm run package` (Marketplace link coming soon).
 
 ## How It Works
 
-DevContext creates a `.devctx/` folder in your repo that stores structured context entries — what you're building, what you tried, key decisions, and where you left off. When you run `devctx resume`, it generates an AI-ready prompt and copies it to your clipboard.
+DevContext stores a `.devctx/` folder in your repo. Each entry captures:
+- **Task**: What you are doing
+- **Goal**: Why you are doing it
+- **Approaches**: What you tried (and what failed)
+- **Decisions**: Key architectural choices
+- **State**: Where you left off
 
-Works with **every AI coding tool**: Cursor, Claude Code, GitHub Copilot, Windsurf, or even ChatGPT.
+It works with **every** AI coding tool because it simply manages the *prompt* — the universal interface for LLMs.
 
 ## License
-
 MIT
