@@ -11,6 +11,7 @@ import {
   getAuthor,
 } from "../core/git";
 import { ContextEntry } from "../core/types";
+import { extractFromEditorSessions } from "../core/parser";
 
 interface SaveOptions {
   goal?: string;
@@ -21,6 +22,7 @@ interface SaveOptions {
   blockers?: string;
   assignee?: string;
   handoffNote?: string;
+  auto?: boolean;
 }
 
 export async function saveCommand(message?: string, options?: SaveOptions) {
@@ -50,7 +52,26 @@ export async function saveCommand(message?: string, options?: SaveOptions) {
     const hasStructuredInput =
       options?.approaches || options?.decisions || options?.state || options?.nextSteps;
 
-    if (hasStructuredInput && message) {
+    if (options?.auto) {
+      // Auto-extract mode — read from editor session data
+      console.log(chalk.gray("  Scanning editor sessions for context..."));
+      const cwd = process.cwd();
+      const extracted = await extractFromEditorSessions(cwd);
+
+      if (extracted) {
+        task = message || extracted.task;
+        approaches = extracted.approaches;
+        decisions = extracted.decisions;
+        currentState = extracted.currentState;
+        nextSteps = extracted.nextSteps;
+        blockers = extracted.blockers;
+        console.log(chalk.gray(`  Found context from: ${extracted.source}`));
+      } else {
+        console.log(chalk.yellow("⚠ No editor session data found. Using message only."));
+        task = message || "Session (auto-extract found nothing)";
+        currentState = message || "";
+      }
+    } else if (hasStructuredInput && message) {
       // Programmatic mode — AI agent is passing structured context
       task = message;
       approaches = options?.approaches

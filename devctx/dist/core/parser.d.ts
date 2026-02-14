@@ -1,12 +1,14 @@
-interface ParsedChatEntry {
-    task?: string;
-    decisions: string[];
+export interface ExtractedContext {
+    task: string;
     approaches: string[];
-    summary?: string;
+    decisions: string[];
+    currentState: string;
+    nextSteps: string[];
+    blockers: string[];
+    source: string;
 }
 /**
- * Attempt to find and parse AI chat logs from known editor locations.
- * Returns extracted context information if found.
+ * Attempt to auto-extract context from AI editor session data.
+ * Scans Claude Code, Antigravity, Cursor, and Windsurf storage.
  */
-export declare function parseAIChatLogs(repoPath: string): ParsedChatEntry | null;
-export {};
+export declare function extractFromEditorSessions(repoPath: string): Promise<ExtractedContext | null>;

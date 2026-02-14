@@ -56,8 +56,8 @@ async function watchCommand(options) {
                     (0, git_1.getRecentCommits)(),
                     (0, git_1.getAuthor)(),
                 ]);
-                // Try to enrich from AI chat logs
-                const chatContext = (0, parser_1.parseAIChatLogs)(root);
+                // Try to enrich from editor session data
+                const chatContext = await (0, parser_1.extractFromEditorSessions)(root);
                 const entry = {
                     id: (0, uuid_1.v4)(),
                     timestamp: new Date().toISOString(),
@@ -68,7 +68,7 @@ async function watchCommand(options) {
                     approaches: chatContext?.approaches || [],
                     decisions: chatContext?.decisions || [],
                     currentState: `${changeCount} files changed since last auto-save`,
-                    nextSteps: [],
+                    nextSteps: chatContext?.nextSteps || [],
                     filesChanged,
                     filesStaged,
                     recentCommits,

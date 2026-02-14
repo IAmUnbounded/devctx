@@ -11,7 +11,7 @@ import {
     getAuthor,
     getRepoRoot,
 } from "../core/git";
-import { parseAIChatLogs } from "../core/parser";
+import { extractFromEditorSessions } from "../core/parser";
 import { ContextEntry } from "../core/types";
 import { loadConfig } from "../utils/config";
 
@@ -68,8 +68,8 @@ export async function watchCommand(options?: { interval?: string }) {
                         getAuthor(),
                     ]);
 
-                // Try to enrich from AI chat logs
-                const chatContext = parseAIChatLogs(root);
+                // Try to enrich from editor session data
+                const chatContext = await extractFromEditorSessions(root);
 
                 const entry: ContextEntry = {
                     id: uuid(),
@@ -81,7 +81,7 @@ export async function watchCommand(options?: { interval?: string }) {
                     approaches: chatContext?.approaches || [],
                     decisions: chatContext?.decisions || [],
                     currentState: `${changeCount} files changed since last auto-save`,
-                    nextSteps: [],
+                    nextSteps: chatContext?.nextSteps || [],
                     filesChanged,
                     filesStaged,
                     recentCommits,

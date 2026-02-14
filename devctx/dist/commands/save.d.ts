@@ -7,6 +7,7 @@ interface SaveOptions {
     blockers?: string;
     assignee?: string;
     handoffNote?: string;
+    auto?: boolean;
 }
 export declare function saveCommand(message?: string, options?: SaveOptions): Promise<void>;
 export {};

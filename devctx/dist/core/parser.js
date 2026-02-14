@@ -3,160 +3,453 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.parseAIChatLogs = parseAIChatLogs;
+exports.extractFromEditorSessions = extractFromEditorSessions;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const os_1 = __importDefault(require("os"));
+const readline_1 = __importDefault(require("readline"));
 /**
- * Attempt to find and parse AI chat logs from known editor locations.
- * Returns extracted context information if found.
+ * Attempt to auto-extract context from AI editor session data.
+ * Scans Claude Code, Antigravity, Cursor, and Windsurf storage.
  */
-function parseAIChatLogs(repoPath) {
-    const home = os_1.default.homedir();
-    // Try known locations
-    const candidates = [
-        // Claude Code projects
-        path_1.default.join(home, ".claude", "projects"),
-        // Cursor logs
-        path_1.default.join(home, ".cursor", "logs"),
-        // Windsurf
-        path_1.default.join(home, ".windsurf", "logs"),
+async function extractFromEditorSessions(repoPath) {
+    // Try each source in priority order
+    const extractors = [
+        extractFromClaudeCode,
+        extractFromAntigravity,
+        extractFromCursor,
     ];
-    for (const dir of candidates) {
-        if (!fs_1.default.existsSync(dir))
-            continue;
-        const result = tryParseDirectory(dir, repoPath);
-        if (result)
-            return result;
+    for (const extractor of extractors) {
+        try {
+            const result = await extractor(repoPath);
+            if (result && result.task)
+                return result;
+        }
+        catch {
+            // Continue to next extractor
+        }
     }
     return null;
 }
-function tryParseDirectory(logDir, repoPath) {
-    try {
-        const repoName = path_1.default.basename(repoPath);
-        // Look for files that mention the repo
-        const files = findRecentFiles(logDir, 5);
-        const decisions = [];
-        const approaches = [];
-        let task;
-        let summary;
-        for (const file of files) {
-            const content = fs_1.default.readFileSync(file, "utf-8");
-            // Skip if doesn't seem related to this repo
-            if (!content.includes(repoName) && !content.includes(repoPath))
-                continue;
-            // Extract patterns from conversation logs
-            const extracted = extractFromContent(content);
-            if (extracted.task && !task)
-                task = extracted.task;
-            if (extracted.summary && !summary)
-                summary = extracted.summary;
-            decisions.push(...extracted.decisions);
-            approaches.push(...extracted.approaches);
-        }
-        if (!task && !summary && decisions.length === 0 && approaches.length === 0) {
-            return null;
-        }
-        return {
-            task,
-            decisions: [...new Set(decisions)],
-            approaches: [...new Set(approaches)],
-            summary,
-        };
-    }
-    catch {
+// -------------------------------------------------------------------
+// Claude Code: ~/.claude/projects/<encoded-path>/<sessionId>.jsonl
+// -------------------------------------------------------------------
+async function extractFromClaudeCode(repoPath) {
+    const home = os_1.default.homedir();
+    const claudeDir = path_1.default.join(home, ".claude", "projects");
+    if (!fs_1.default.existsSync(claudeDir))
         return null;
+    // Find the project folder matching this repo path
+    // Claude encodes paths by replacing / with -
+    const encodedPath = repoPath.replace(/\//g, "-");
+    const projectDirs = fs_1.default.readdirSync(claudeDir);
+    const matchingDir = projectDirs.find((d) => encodedPath.endsWith(d) || d.endsWith(encodedPath.slice(1)));
+    if (!matchingDir)
+        return null;
+    const projectPath = path_1.default.join(claudeDir, matchingDir);
+    // 1. Try memory files first (most structured)
+    const memoryDir = path_1.default.join(projectPath, "memory");
+    if (fs_1.default.existsSync(memoryDir)) {
+        const memoryResult = parseClaudeMemory(memoryDir);
+        if (memoryResult)
+            return memoryResult;
     }
+    // 2. Parse the most recent session JSONL
+    const jsonlFiles = fs_1.default
+        .readdirSync(projectPath)
+        .filter((f) => f.endsWith(".jsonl"))
+        .map((f) => ({
+        name: f,
+        mtime: fs_1.default.statSync(path_1.default.join(projectPath, f)).mtime.getTime(),
+    }))
+        .sort((a, b) => b.mtime - a.mtime);
+    if (jsonlFiles.length === 0)
+        return null;
+    const latestSession = path_1.default.join(projectPath, jsonlFiles[0].name);
+    return await parseClaudeSession(latestSession);
 }
-function findRecentFiles(dir, maxDays) {
-    const cutoff = Date.now() - maxDays * 24 * 60 * 60 * 1000;
-    const results = [];
-    try {
-        const walk = (d, depth) => {
-            if (depth > 3)
-                return; // Don't recurse too deep
-            const entries = fs_1.default.readdirSync(d, { withFileTypes: true });
-            for (const entry of entries) {
-                const full = path_1.default.join(d, entry.name);
-                if (entry.isDirectory()) {
-                    walk(full, depth + 1);
-                }
-                else if (entry.isFile() &&
-                    (entry.name.endsWith(".json") ||
-                        entry.name.endsWith(".jsonl") ||
-                        entry.name.endsWith(".log") ||
-                        entry.name.endsWith(".md"))) {
-                    try {
-                        const stat = fs_1.default.statSync(full);
-                        if (stat.mtimeMs > cutoff) {
-                            results.push(full);
-                        }
-                    }
-                    catch {
-                        // skip inaccessible files
-                    }
-                }
-            }
-        };
-        walk(dir, 0);
-    }
-    catch {
-        // skip inaccessible directories
-    }
-    return results.sort((a, b) => {
-        try {
-            return fs_1.default.statSync(b).mtimeMs - fs_1.default.statSync(a).mtimeMs;
-        }
-        catch {
-            return 0;
-        }
-    });
-}
-function extractFromContent(content) {
+function parseClaudeMemory(memoryDir) {
+    const files = fs_1.default.readdirSync(memoryDir).filter((f) => f.endsWith(".md"));
+    if (files.length === 0)
+        return null;
+    let task = "";
     const decisions = [];
     const approaches = [];
-    let task;
-    let summary;
-    // Look for common patterns in AI chat logs
-    const lines = content.split("\n");
-    for (const line of lines) {
-        const lower = line.toLowerCase();
-        // Decision patterns
-        if (lower.includes("decided to") ||
-            lower.includes("decision:") ||
-            lower.includes("chose to") ||
-            lower.includes("going with")) {
-            const cleaned = line.replace(/^[\s\-*#>]+/, "").trim();
-            if (cleaned.length > 10 && cleaned.length < 200) {
-                decisions.push(cleaned);
+    let currentState = "";
+    const nextSteps = [];
+    for (const file of files) {
+        const content = fs_1.default.readFileSync(path_1.default.join(memoryDir, file), "utf-8");
+        // Extract project description from memory
+        if (file === "MEMORY.md") {
+            const projectMatch = content.match(/##\s*Project\s*(?:Location|Overview)?\s*\n([\s\S]*?)(?=\n##|$)/i);
+            if (projectMatch) {
+                const lines = projectMatch[1].trim().split("\n").filter(Boolean);
+                task = lines[0]?.replace(/^[-*]\s*\*\*.*?\*\*:\s*/, "").trim() || "";
             }
         }
-        // Approach patterns
-        if (lower.includes("tried") ||
-            lower.includes("approach:") ||
-            lower.includes("attempted") ||
-            lower.includes("switched to")) {
-            const cleaned = line.replace(/^[\s\-*#>]+/, "").trim();
-            if (cleaned.length > 10 && cleaned.length < 200) {
-                approaches.push(cleaned);
+        // Extract conventions as decisions
+        const conventionMatch = content.match(/##\s*Conventions?\s*\n([\s\S]*?)(?=\n##|$)/i);
+        if (conventionMatch) {
+            const lines = conventionMatch[1].trim().split("\n").filter(Boolean);
+            for (const line of lines.slice(0, 5)) {
+                const cleaned = line.replace(/^[-*]\s*/, "").trim();
+                if (cleaned.length > 10)
+                    decisions.push(cleaned);
             }
         }
-        // Task patterns
-        if ((lower.includes("working on") ||
-            lower.includes("implementing") ||
-            lower.includes("building") ||
-            lower.includes("fixing")) &&
-            !task) {
-            const cleaned = line.replace(/^[\s\-*#>]+/, "").trim();
-            if (cleaned.length > 10 && cleaned.length < 200) {
-                task = cleaned;
+        // Extract patterns as approaches
+        const patternMatch = content.match(/##\s*Patterns?\s*\n([\s\S]*?)(?=\n##|$)/i);
+        if (patternMatch) {
+            const lines = patternMatch[1].trim().split("\n").filter(Boolean);
+            for (const line of lines.slice(0, 5)) {
+                const cleaned = line.replace(/^[-*]\s*/, "").trim();
+                if (cleaned.length > 10)
+                    approaches.push(cleaned);
             }
+        }
+    }
+    if (!task && decisions.length === 0)
+        return null;
+    return {
+        task: task || "Project session (from Claude Code memory)",
+        approaches,
+        decisions,
+        currentState: currentState || "Loaded from Claude Code memory files",
+        nextSteps,
+        blockers: [],
+        source: "claude-code-memory",
+    };
+}
+async function parseClaudeSession(sessionPath) {
+    // Read ALL lines — we need both the first messages (intent) and last messages (state)
+    const allLines = await readLastLines(sessionPath, 500);
+    // Separate into first messages (intent) and last messages (current state)
+    const firstUserMessages = [];
+    const lastUserMessages = [];
+    const lastAssistantMessages = [];
+    for (const line of allLines) {
+        try {
+            const entry = JSON.parse(line);
+            const text = extractMessageText(entry);
+            if (!text || text.length < 5)
+                continue;
+            if (entry.type === "user") {
+                // Collect first 3 user messages as intent
+                if (firstUserMessages.length < 3) {
+                    firstUserMessages.push(text);
+                }
+                lastUserMessages.push(text);
+            }
+            else if (entry.type === "assistant" && text.length > 20) {
+                lastAssistantMessages.push(text);
+            }
+        }
+        catch {
+            // Skip malformed lines
+        }
+    }
+    if (firstUserMessages.length === 0)
+        return null;
+    // The FIRST user message is the intent — what they wanted to do
+    const intent = firstUserMessages[0];
+    const intentFirstLine = intent.split("\n")[0].trim();
+    // Use first line if short, or first 200 chars
+    const task = intentFirstLine.length < 300 ? intentFirstLine : intent.slice(0, 200);
+    // Later user messages show what else was requested
+    const additionalRequests = firstUserMessages.slice(1).map((m) => {
+        const line = m.split("\n")[0].trim();
+        return line.length < 200 ? line : line.slice(0, 200);
+    });
+    // Use assistant messages for decisions/approaches/state
+    const recentAssistant = lastAssistantMessages.slice(-10);
+    const decisions = extractDecisions(recentAssistant);
+    const approaches = extractApproaches(recentAssistant);
+    const currentState = extractState(recentAssistant);
+    const nextSteps = extractNextSteps(recentAssistant);
+    return {
+        task,
+        approaches: [...additionalRequests.map(r => `User also asked: ${r}`), ...approaches],
+        decisions,
+        currentState: currentState || "Session data parsed from Claude Code",
+        nextSteps,
+        blockers: [],
+        source: "claude-code-session",
+    };
+}
+function extractMessageText(entry) {
+    const content = entry.message?.content;
+    if (!content)
+        return "";
+    if (typeof content === "string")
+        return content;
+    if (Array.isArray(content)) {
+        return content
+            .filter((c) => c.type === "text")
+            .map((c) => c.text)
+            .join("\n");
+    }
+    return "";
+}
+// -------------------------------------------------------------------
+// Antigravity: ~/.gemini/antigravity/brain/<id>/
+// -------------------------------------------------------------------
+async function extractFromAntigravity(repoPath) {
+    const home = os_1.default.homedir();
+    const brainDir = path_1.default.join(home, ".gemini", "antigravity", "brain");
+    if (!fs_1.default.existsSync(brainDir))
+        return null;
+    // Find most recent conversation that has artifacts
+    const conversations = fs_1.default
+        .readdirSync(brainDir)
+        .map((d) => {
+        const dir = path_1.default.join(brainDir, d);
+        const taskFile = path_1.default.join(dir, "task.md");
+        try {
+            const stat = fs_1.default.existsSync(taskFile)
+                ? fs_1.default.statSync(taskFile)
+                : fs_1.default.statSync(dir);
+            return { name: d, dir, taskFile, mtime: stat.mtime.getTime(), valid: true };
+        }
+        catch {
+            return { name: d, dir, taskFile, mtime: 0, valid: false };
+        }
+    })
+        .filter((d) => d.valid && fs_1.default.existsSync(d.taskFile))
+        .sort((a, b) => b.mtime - a.mtime);
+    if (conversations.length === 0)
+        return null;
+    const latest = conversations[0];
+    // 1. Try to get the USER'S INTENT from implementation_plan.md
+    //    The plan title and overview section capture what the user wanted
+    let task = "";
+    const decisions = [];
+    const approaches = [];
+    const planFile = path_1.default.join(latest.dir, "implementation_plan.md");
+    if (fs_1.default.existsSync(planFile)) {
+        const plan = fs_1.default.readFileSync(planFile, "utf-8");
+        // First heading is the goal/intent
+        const titleMatch = plan.match(/^#\s+(.+)$/m);
+        if (titleMatch) {
+            task = titleMatch[1].trim();
+        }
+        // Overview/description section captures the WHY
+        const overviewMatch = plan.match(/##\s*(?:Overview|Context|Background)\s*\n([\s\S]*?)(?=\n##|$)/i);
+        if (overviewMatch) {
+            const overviewText = overviewMatch[1].trim();
+            if (overviewText.length > 10) {
+                approaches.push(overviewText.split("\n")[0].trim());
+            }
+        }
+        // Proposed changes sections capture decisions
+        const decisionPatterns = plan.match(/####\s*\[.*?\]\s*\[(.+?)\]/gm) || [];
+        for (const d of decisionPatterns.slice(0, 5)) {
+            const fileName = d.match(/\[([^\]]+)\]\s*$/)?.[1]?.trim();
+            if (fileName)
+                decisions.push(`Modified: ${fileName}`);
+        }
+    }
+    // 2. Try metadata.json files for stored summaries
+    const metaFiles = ["task.md.metadata.json", "implementation_plan.md.metadata.json"];
+    for (const metaFile of metaFiles) {
+        const metaPath = path_1.default.join(latest.dir, metaFile);
+        if (fs_1.default.existsSync(metaPath)) {
+            try {
+                const meta = JSON.parse(fs_1.default.readFileSync(metaPath, "utf-8"));
+                if (meta.Summary && !task) {
+                    task = meta.Summary.split("\n")[0].trim();
+                }
+                if (meta.Summary && meta.Summary.length > 50) {
+                    // The metadata summary often contains the full intent
+                    approaches.push(meta.Summary.split("\n")[0].trim());
+                }
+            }
+            catch { }
+        }
+    }
+    // 3. Parse task.md for progress tracking
+    const taskContent = fs_1.default.readFileSync(latest.taskFile, "utf-8");
+    if (!task) {
+        task = extractTaskFromMarkdown(taskContent);
+    }
+    const nextSteps = extractIncompleteItems(taskContent);
+    const completed = extractCompletedItems(taskContent);
+    // 4. Parse walkthrough.md for current state
+    let currentState = "";
+    const walkthroughFile = path_1.default.join(latest.dir, "walkthrough.md");
+    if (fs_1.default.existsSync(walkthroughFile)) {
+        const walkthrough = fs_1.default.readFileSync(walkthroughFile, "utf-8");
+        // The walkthrough title is often a good summary of what was accomplished
+        const walkTitle = walkthrough.match(/^#\s+(.+)$/m);
+        if (walkTitle && !currentState) {
+            currentState = walkTitle[1].trim();
+        }
+        // First section gives more detail
+        const firstSection = walkthrough.match(/##\s*.*?\n([\s\S]*?)(?=\n##|$)/);
+        if (firstSection) {
+            const detail = firstSection[1].trim().slice(0, 300);
+            currentState = currentState ? `${currentState}. ${detail}` : detail;
         }
     }
     return {
-        task,
-        decisions: decisions.slice(0, 10), // cap at 10
-        approaches: approaches.slice(0, 10),
-        summary,
+        task: task || "Antigravity session",
+        approaches: [
+            ...approaches,
+            ...completed.slice(0, 5).map((c) => `Done: ${c}`),
+        ],
+        decisions,
+        currentState: currentState || "Loaded from Antigravity brain artifacts",
+        nextSteps,
+        blockers: [],
+        source: "antigravity",
     };
+}
+// -------------------------------------------------------------------
+// Cursor: ~/.cursor/ (basic search)
+// -------------------------------------------------------------------
+async function extractFromCursor(_repoPath) {
+    const home = os_1.default.homedir();
+    const cursorDir = path_1.default.join(home, ".cursor");
+    if (!fs_1.default.existsSync(cursorDir))
+        return null;
+    // Cursor stores workspace state in various places
+    const workspaceStorage = path_1.default.join(cursorDir, "User", "workspaceStorage");
+    if (!fs_1.default.existsSync(workspaceStorage))
+        return null;
+    // Look for recent conversation state files
+    const workspaces = fs_1.default
+        .readdirSync(workspaceStorage)
+        .map((d) => ({
+        name: d,
+        path: path_1.default.join(workspaceStorage, d),
+        mtime: fs_1.default.statSync(path_1.default.join(workspaceStorage, d)).mtime.getTime(),
+    }))
+        .sort((a, b) => b.mtime - a.mtime)
+        .slice(0, 3);
+    for (const ws of workspaces) {
+        // Look for AI chat state
+        const chatDb = path_1.default.join(ws.path, "state.vscdb");
+        if (fs_1.default.existsSync(chatDb)) {
+            // SQLite — would need sqlite3 dependency, skip for now
+            return null;
+        }
+    }
+    return null;
+}
+// -------------------------------------------------------------------
+// Helpers
+// -------------------------------------------------------------------
+async function readLastLines(filePath, maxLines) {
+    const lines = [];
+    const fileStream = fs_1.default.createReadStream(filePath, { encoding: "utf-8" });
+    const rl = readline_1.default.createInterface({ input: fileStream, crlfDelay: Infinity });
+    const buffer = [];
+    for await (const line of rl) {
+        buffer.push(line);
+        if (buffer.length > maxLines * 2) {
+            buffer.splice(0, maxLines); // keep a sliding window
+        }
+    }
+    return buffer.slice(-maxLines);
+}
+function extractTaskFromMessages(messages) {
+    // First user message is usually the task
+    const first = messages[0] || "";
+    // If it starts with "Implement", "Build", "Fix", etc., use first line
+    const firstLine = first.split("\n")[0].trim();
+    if (firstLine.length > 10 && firstLine.length < 300) {
+        return firstLine;
+    }
+    // Try to find a task-like sentence
+    for (const msg of messages) {
+        const match = msg.match(/(?:implement|build|fix|create|add|refactor|debug|optimize|update|migrate)\s+(.+?)(?:\.|$)/i);
+        if (match)
+            return match[0].trim().slice(0, 200);
+    }
+    return first.slice(0, 200);
+}
+function extractDecisions(messages) {
+    const decisions = [];
+    const patterns = [
+        /(?:decided|choosing|using|going with|switched to|picked)\s+(.+?)(?:\.|$)/gi,
+        /(?:decision|chose|selected|opted for)\s*:?\s*(.+?)(?:\.|$)/gi,
+    ];
+    for (const msg of messages.slice(-10)) {
+        for (const pattern of patterns) {
+            pattern.lastIndex = 0;
+            let match;
+            while ((match = pattern.exec(msg)) !== null) {
+                const d = match[0].trim();
+                if (d.length > 10 && d.length < 200 && !decisions.includes(d)) {
+                    decisions.push(d);
+                }
+            }
+        }
+    }
+    return decisions.slice(0, 8);
+}
+function extractApproaches(messages) {
+    const approaches = [];
+    const patterns = [
+        /(?:tried|approach|attempted|tested|experimented with)\s+(.+?)(?:\.|$)/gi,
+        /(?:first|then|alternatively|instead)\s*,?\s*(?:I|we|let's)\s+(.+?)(?:\.|$)/gi,
+    ];
+    for (const msg of messages.slice(-10)) {
+        for (const pattern of patterns) {
+            pattern.lastIndex = 0;
+            let match;
+            while ((match = pattern.exec(msg)) !== null) {
+                const a = match[0].trim();
+                if (a.length > 10 && a.length < 200 && !approaches.includes(a)) {
+                    approaches.push(a);
+                }
+            }
+        }
+    }
+    return approaches.slice(0, 8);
+}
+function extractState(messages) {
+    // Look at last assistant message for state
+    const last = messages[messages.length - 1] || "";
+    // Look for state indicators
+    const stateMatch = last.match(/(?:currently|now|at this point|so far|status:?)\s*(.+?)(?:\.|$)/i);
+    if (stateMatch)
+        return stateMatch[0].trim().slice(0, 300);
+    // Use last meaningful line
+    const lines = last.split("\n").filter((l) => l.trim().length > 20);
+    return lines[lines.length - 1]?.trim()?.slice(0, 300) || "";
+}
+function extractNextSteps(messages) {
+    const steps = [];
+    for (const msg of messages.slice(-5)) {
+        const nextMatch = msg.match(/(?:next steps?|todo|remaining|still need to|should also)\s*:?\s*\n?((?:\s*[-*\d.]+\s*.+\n?)+)/i);
+        if (nextMatch) {
+            const items = nextMatch[1]
+                .split("\n")
+                .map((l) => l.replace(/^[\s\-*\d.]+/, "").trim())
+                .filter((l) => l.length > 5);
+            steps.push(...items);
+        }
+    }
+    return [...new Set(steps)].slice(0, 8);
+}
+function extractTaskFromMarkdown(content) {
+    // Get title from first heading
+    const titleMatch = content.match(/^#\s+(.+)$/m);
+    return titleMatch?.[1]?.trim() || "";
+}
+function extractIncompleteItems(content) {
+    const items = [];
+    const matches = content.matchAll(/\[\s\]\s+(.+)$/gm);
+    for (const m of matches) {
+        items.push(m[1].trim());
+    }
+    return items.slice(0, 8);
+}
+function extractCompletedItems(content) {
+    const items = [];
+    const matches = content.matchAll(/\[x\]\s+(.+)$/gm);
+    for (const m of matches) {
+        items.push(m[1].trim());
+    }
+    return items.slice(0, 8);
 }

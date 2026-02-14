@@ -28,6 +28,7 @@ program
     .command("save [message]")
     .description("Save current coding context")
     .option("-g, --goal <goal>", "Goal or ticket reference")
+    .option("-a, --auto", "Auto-extract context from editor sessions (Claude Code, Antigravity, Cursor)")
     .option("--approaches <approaches>", "Approaches tried (;; separated)")
     .option("--decisions <decisions>", "Key decisions made (;; separated)")
     .option("--state <state>", "Current state / where you left off")
