@@ -262,6 +262,32 @@ async function extractFromAntigravity(
         if (titleMatch) {
             task = titleMatch[1].trim();
         }
+    }
+
+    // 2. Parse task.md for MORE SPECIFIC active task
+    //    If we have a specific checklist item that is In Progress or Recently Done, use that as the main task
+    const taskContent = fs.existsSync(latest.taskFile) ? fs.readFileSync(latest.taskFile, "utf-8") : "";
+    if (taskContent) {
+        // Look for in-progress items first (user specific notations like [-] or [/])
+        const inProgressMatch = taskContent.match(/-\s+\[[/-]\]\s+(.+)$/m);
+        if (inProgressMatch) {
+            task = inProgressMatch[1].trim();
+        } else {
+            // Look for last completed item (likely what was just finished)
+            const completedMatches = [...taskContent.matchAll(/-\s+\[x\]\s+(.+)$/gm)];
+            if (completedMatches.length > 0) {
+                // Use the last TWO completed items if available, to capture context + verification
+                const lastTwo = completedMatches.slice(-2).map(m => m[1].trim());
+                const combinedTask = lastTwo.join(" + ");
+
+                // Combine with plan title if available for context
+                task = task ? `${combinedTask} (Structure: ${task})` : combinedTask;
+            }
+        }
+    }
+
+    if (fs.existsSync(planFile)) {
+        const plan = fs.readFileSync(planFile, "utf-8");
 
         // Proposed changes sections often contain file lists - WE WANT TO IGNORE THESE
         // Instead, look for "Important" or "Note" alerts which contain architectural decisions
@@ -327,9 +353,8 @@ async function extractFromAntigravity(
         }
     }
 
-    // 3. Parse task.md for progress tracking
-    const taskContent = fs.readFileSync(latest.taskFile, "utf-8");
-    if (!task) {
+    // 3. Parse task.md for next steps (already read content above)
+    if (!task && taskContent) {
         task = extractTaskFromMarkdown(taskContent);
     }
     const nextSteps = extractIncompleteItems(taskContent);
