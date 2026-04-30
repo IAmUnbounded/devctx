@@ -1,23 +1,6 @@
 #!/usr/bin/env node
 "use strict";
-/**
- * DevContext MCP Server
- *
- * Exposes DevContext functionality as MCP tools and resources
- * for Claude Code and other MCP-compatible clients.
- *
- * Usage:
- *   devctx-mcp                    # stdio transport (default)
- *
- * Configure in Claude Code's MCP settings:
- *   {
- *     "mcpServers": {
- *       "devctx": {
- *         "command": "devctx-mcp"
- *       }
- *     }
- *   }
- */
+
 Object.defineProperty(exports, "__esModule", { value: true });
 const mcp_js_1 = require("@modelcontextprotocol/sdk/server/mcp.js");
 const stdio_js_1 = require("@modelcontextprotocol/sdk/server/stdio.js");
