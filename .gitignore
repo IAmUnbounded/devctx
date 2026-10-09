@@ -1,3 +1,6 @@
+# DevContext - AI coding context
+.devctx/
+
 node_modules/
 *.vsix
 .DS_Store
