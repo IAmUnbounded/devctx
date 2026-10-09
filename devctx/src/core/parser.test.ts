@@ -70,7 +70,7 @@ The bug is reproduced on iPhone SE. Fix involves adding overflow-hidden to conta
 
         expect(result).not.toBeNull();
         expect(result?.source).toBe("antigravity");
-        expect(result?.task).toBe("Fix Layout Bug"); // From implementation_plan.md title
+        expect(result?.task).toBe("Analyze bug + Create reproduction (Structure: Fix Layout Bug)"); // Active task.md items, with the implementation_plan.md title as structure
         expect(result?.approaches).toContain("The user reported a layout issue on mobile screens where the header overflows.");
         expect(result?.approaches).toContain("Done: Analyze bug");
 
