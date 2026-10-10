@@ -25,8 +25,10 @@ devctx resume
 ## Install
 
 ```bash
-npm install -g devctx
+npm install -g https://github.com/IAmUnbounded/devctx/releases/download/v0.6.0/devctx-0.6.0.tgz
 ```
+
+> **Note:** the `devctx` package on the npm registry is not published by this project. Install from the GitHub release above.
 
 ## Quick Start
 
@@ -91,7 +93,7 @@ DevContext provides a Model Context Protocol (MCP) server to allow AI agents to 
   "mcpServers": {
     "devctx": {
       "command": "npx",
-      "args": ["-y", "devctx", "mcp"]
+      "args": ["-y", "-p", "https://github.com/IAmUnbounded/devctx/releases/download/v0.6.0/devctx-0.6.0.tgz", "devctx-mcp"]
     }
   }
 }

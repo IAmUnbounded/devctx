@@ -1,6 +1,6 @@
 {
   "name": "devctx",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Persistent AI coding context for teams. Git tracks code history. DevContext tracks intent history.",
   "keywords": [
     "ai",

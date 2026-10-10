@@ -29,7 +29,7 @@ import { v4 as uuid } from "uuid";
 
 const server = new McpServer({
     name: "devctx",
-    version: "0.5.0",
+    version: "0.6.0",
 });
 
 // --- Tools ---

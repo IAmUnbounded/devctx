@@ -28,7 +28,7 @@ const prompt_1 = require("./core/prompt");
 const uuid_1 = require("uuid");
 const server = new mcp_js_1.McpServer({
     name: "devctx",
-    version: "0.5.0",
+    version: "0.6.0",
 });
 const resumeSchema = {
     branch: zod_1.z.string().optional().describe("Branch name to resume. Defaults to current branch."),

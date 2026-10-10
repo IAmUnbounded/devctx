@@ -19,7 +19,7 @@ const program = new commander_1.Command();
 program
     .name("devctx")
     .description("Persistent AI coding context for teams")
-    .version("0.5.0");
+    .version("0.6.0");
 program
     .command("init")
     .description("Initialize DevContext in the current repo")

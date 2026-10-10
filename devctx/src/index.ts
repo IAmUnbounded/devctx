@@ -19,7 +19,7 @@ const program = new Command();
 program
   .name("devctx")
   .description("Persistent AI coding context for teams")
-  .version("0.5.0");
+  .version("0.6.0");
 
 program
   .command("init")
